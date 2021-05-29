@@ -10,6 +10,8 @@ import java.io.File
 
 class Database(private val name: String, private val context: Context) {
 
+    class InvalidDBFile(message: String) : Exception(message)
+
     private val db: SQLiteDatabase by lazy {
         SQLiteDatabase.openOrCreateDatabase(
                 // TODO: This SUCKS. Seems like Android doesn't like sqlite `?mode=memory&cache=shared` mode. To avoid random breakages, save the file to /tmp, but this is slow.
@@ -19,6 +21,9 @@ class Database(private val name: String, private val context: Context) {
                     context.cacheDir.delete()
                     File(context.cacheDir, name).path
                 } else if (name.startsWith("/") || name.startsWith("file")) {
+                    if (!name.endsWith(".db")) {
+                        throw InvalidDBFile("Only *.db files can be used to populate the database.")
+                    }
                     // Extracts the database name from the path
                     val dbName = name.substringAfterLast("/")
                     
