@@ -1,5 +1,5 @@
 import { sortBy, identity, pipe, pluck } from 'rambdax'
-import expect from 'expect'
+import expect from 'expect-rn'
 import { allPromises, toPairs } from '../../utils/fp'
 
 import Model from '../../Model'
@@ -122,7 +122,7 @@ const mockCollections = {
 export const modelQuery = (modelClass, ...conditions) => {
   const mockCollection = {
     modelClass,
-    db: { get: table => ({ modelClass: mockCollections[table] }) },
+    db: { get: (table) => ({ modelClass: mockCollections[table] }) },
   }
   return new Query(mockCollection, conditions)
 }
@@ -130,12 +130,13 @@ export const modelQuery = (modelClass, ...conditions) => {
 export const taskQuery = (...conditions) => modelQuery(MockTask, ...conditions).serialize()
 export const projectQuery = (...conditions) => modelQuery(MockProject, ...conditions).serialize()
 
-export const mockTaskRaw = raw => sanitizedRaw(raw, testSchema.tables.tasks)
-export const mockProjectRaw = raw => sanitizedRaw(raw, testSchema.tables.projects)
+export const mockTaskRaw = (raw) => sanitizedRaw(raw, testSchema.tables.tasks)
+export const mockProjectRaw = (raw) => sanitizedRaw(raw, testSchema.tables.projects)
+export const mockTagAssignmentRaw = (raw) => sanitizedRaw(raw, testSchema.tables.tag_assignments)
 
 const insertAll = async (adapter, table, records) =>
   adapter.batch(
-    records.map(raw => {
+    records.map((raw) => {
       // TODO: Are we sure we want to test this by inserting non-sanitized records?
       // On one hand, this _shouldn't_ happen, on the other, through error or malice
       // (changing DB directly, outside of Wmelon), it _might_ happen
@@ -144,10 +145,7 @@ const insertAll = async (adapter, table, records) =>
   )
 
 const sort = sortBy(identity)
-const getExpectedResults = pipe(
-  pluck('id'),
-  sort,
-)
+const getExpectedResults = pipe(pluck('id'), sort)
 
 export const expectSortedEqual = (actual, expected) => {
   expect(sort(actual)).toEqual(sort(expected))
@@ -160,13 +158,22 @@ export const performMatchTest = async (adapter, testCase) => {
   await insertAll(adapter, 'tasks', nonMatching)
 
   const query = taskQuery(...conditions)
-  const results = await adapter.query(query)
-  expect(sort(results)).toEqual(getExpectedResults(matching))
 
-  // also test if counting works correctly
+  // test if query fetch is correct
+  if (!testCase.skipQuery) {
+    const results = await adapter.query(query)
+    const expectedResults = getExpectedResults(matching)
+    expect(sort(results)).toEqual(expectedResults)
+
+    // test if ID fetch is correct
+    const ids = await adapter.queryIds(query)
+    expect(sort(ids)).toEqual(expectedResults)
+  }
+
+  // test if counting is correct
   if (!testCase.skipCount) {
     const count = await adapter.count(query)
-    expect(count).toBe(results.length)
+    expect(count).toBe(matching.length)
   }
 
   // delete

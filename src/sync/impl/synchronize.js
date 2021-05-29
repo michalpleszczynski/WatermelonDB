@@ -11,10 +11,8 @@ import {
   setLastPulledSchemaVersion,
   getMigrationInfo,
 } from './index'
-import { ensureActionsEnabled, ensureSameDatabase, isChangeSetEmpty, changeSetCount } from './helpers'
-import {
-  type SyncArgs,
-} from '../index'
+import { ensureSameDatabase, isChangeSetEmpty, changeSetCount } from './helpers'
+import { type SyncArgs } from '../index'
 
 export default async function synchronize({
   database,
@@ -26,7 +24,6 @@ export default async function synchronize({
   conflictResolver,
   _unsafeBatchPerCollection,
 }: SyncArgs): Promise<void> {
-  ensureActionsEnabled(database)
   const resetCount = database._resetCount
   log && (log.startedAt = new Date())
   log && (log.phase = 'starting')
@@ -59,13 +56,13 @@ export default async function synchronize({
     `pullChanges() returned invalid timestamp ${newLastPulledAt}. timestamp must be a non-zero number`,
   )
 
-  await database.action(async action => {
+  await database.write(async (writer) => {
     ensureSameDatabase(database, resetCount)
     invariant(
       lastPulledAt === (await getLastPulledAt(database)),
       '[Sync] Concurrent synchronization is not allowed. More than one synchronize() call was running at the same time, and the later one was aborted before committing results to local database.',
     )
-    await action.subAction(() =>
+    await writer.callWriter(() =>
       applyRemoteChanges(
         database,
         remoteChanges,
@@ -84,21 +81,25 @@ export default async function synchronize({
   }, 'sync-synchronize-apply')
 
   // push phase
-  log && (log.phase = 'ready to fetch local changes')
+  if (pushChanges) {
+    log && (log.phase = 'ready to fetch local changes')
 
-  const localChanges = await fetchLocalChanges(database)
-  log && (log.localChangeCount = changeSetCount(localChanges.changes))
-  log && (log.phase = 'fetched local changes')
-
-  ensureSameDatabase(database, resetCount)
-  if (!isChangeSetEmpty(localChanges.changes)) {
-    log && (log.phase = 'ready to push')
-    await pushChanges({ changes: localChanges.changes, lastPulledAt: newLastPulledAt })
-    log && (log.phase = 'pushed')
+    const localChanges = await fetchLocalChanges(database)
+    log && (log.localChangeCount = changeSetCount(localChanges.changes))
+    log && (log.phase = 'fetched local changes')
 
     ensureSameDatabase(database, resetCount)
-    await markLocalChangesAsSynced(database, localChanges)
-    log && (log.phase = 'marked local changes as synced')
+    if (!isChangeSetEmpty(localChanges.changes)) {
+      log && (log.phase = 'ready to push')
+      await pushChanges({ changes: localChanges.changes, lastPulledAt: newLastPulledAt })
+      log && (log.phase = 'pushed')
+
+      ensureSameDatabase(database, resetCount)
+      await markLocalChangesAsSynced(database, localChanges)
+      log && (log.phase = 'marked local changes as synced')
+    }
+  } else {
+    log && (log.phase = 'pushChanges not defined')
   }
 
   log && (log.finishedAt = new Date())

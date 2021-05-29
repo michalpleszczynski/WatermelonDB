@@ -3,19 +3,14 @@
 
 import { NativeModules } from 'react-native'
 import { fromPairs } from '../../../utils/fp'
-
-import { type ConnectionTag, logger, invariant } from '../../../utils/common'
-
+import { type ConnectionTag, logger } from '../../../utils/common'
 import { fromPromise } from '../../../utils/fp/Result'
-
 import type {
   DispatcherType,
   SQLiteAdapterOptions,
   NativeDispatcher,
   NativeBridgeType,
 } from '../type'
-
-import { syncReturnToResult } from '../common'
 
 const { DatabaseBridge }: { DatabaseBridge: NativeBridgeType } = NativeModules
 
@@ -27,31 +22,20 @@ const dispatcherMethods = [
   'setUpWithMigrations',
   'find',
   'query',
+  'queryIds',
+  'unsafeQueryRaw',
   'count',
   'batch',
   'batchJSON',
-  'getDeletedRecords',
-  'destroyDeletedRecords',
   'unsafeResetDatabase',
   'getLocal',
-  'setLocal',
-  'removeLocal',
 ]
 
-export const makeDispatcher = (
-  type: DispatcherType,
-  tag: ConnectionTag,
-  dbName: string,
-): NativeDispatcher => {
-  const jsiDb = type === 'jsi' && global.nativeWatermelonCreateAdapter(dbName)
-
-  const methods = dispatcherMethods.map(methodName => {
-    // batchJSON is missing on Android
-    if (!DatabaseBridge[methodName] || (methodName === 'batchJSON' && jsiDb)) {
+export const makeDispatcherNativeModules = (tag: ConnectionTag): NativeDispatcher => {
+  const methods = dispatcherMethods.map((methodName) => {
+    if (!DatabaseBridge[methodName]) {
       return [methodName, undefined]
     }
-
-    const name = type === 'synchronous' ? `${methodName}Synchronous` : methodName
 
     return [
       methodName,
@@ -59,34 +43,55 @@ export const makeDispatcher = (
         const callback = args[args.length - 1]
         const otherArgs = args.slice(0, -1)
 
-        if (jsiDb) {
-          try {
-            const value =
-              methodName === 'query' || methodName === 'count'
-                ? jsiDb[methodName](...otherArgs, []) // FIXME: temp workaround
-                : jsiDb[methodName](...otherArgs)
-            callback({ value })
-          } catch (error) {
-            callback({ error })
-          }
-          return
-        }
-
         // $FlowFixMe
-        const returnValue = DatabaseBridge[name](tag, ...otherArgs)
+        const returnValue = DatabaseBridge[methodName](tag, ...otherArgs)
+        fromPromise(returnValue, callback)
+      },
+    ]
+  })
 
-        if (type === 'synchronous') {
-          callback(syncReturnToResult((returnValue: any)))
-        } else {
-          fromPromise(returnValue, callback)
+  return (fromPairs(methods): any)
+}
+
+export const makeDispatcherJsi = (dbName: string): NativeDispatcher => {
+  const jsiDb = global.nativeWatermelonCreateAdapter(dbName)
+
+  const methods = dispatcherMethods.map((methodName) => {
+    if (!jsiDb[methodName]) {
+      return [methodName, undefined]
+    }
+
+    return [
+      methodName,
+      (...args) => {
+        const callback = args[args.length - 1]
+        const otherArgs = args.slice(0, -1)
+
+        try {
+          const value = jsiDb[methodName](...otherArgs)
+
+          // On Android, errors are returned, not thrown - see DatabaseInstallation.cpp
+          if (value instanceof Error) {
+            callback({ error: value })
+          } else {
+            callback({ value })
+          }
+        } catch (error) {
+          callback({ error })
         }
       },
     ]
   })
 
-  const dispatcher: any = fromPairs(methods)
-  return dispatcher
+  return (fromPairs(methods): any)
 }
+
+export const makeDispatcher = (
+  type: DispatcherType,
+  tag: ConnectionTag,
+  dbName: string,
+): NativeDispatcher =>
+  type === 'jsi' ? makeDispatcherJsi(dbName) : makeDispatcherNativeModules(tag)
 
 const initializeJSI = () => {
   if (global.nativeWatermelonCreateAdapter) {
@@ -98,7 +103,7 @@ const initializeJSI = () => {
       DatabaseBridge.initializeJSI()
       return !!global.nativeWatermelonCreateAdapter
     } catch (e) {
-      logger.error('[WatermelonDB][SQLite] Failed to initialize JSI')
+      logger.error('[SQLite] Failed to initialize JSI')
       logger.error(e)
     }
   }
@@ -107,20 +112,7 @@ const initializeJSI = () => {
 }
 
 export function getDispatcherType(options: SQLiteAdapterOptions): DispatcherType {
-  invariant(
-    !(options.synchronous && options.experimentalUseJSI),
-    '`synchronous` and `experimentalUseJSI` SQLiteAdapter options are mutually exclusive',
-  )
-
-  if (options.synchronous) {
-    if (DatabaseBridge.initializeSynchronous) {
-      return 'synchronous'
-    }
-
-    logger.warn(
-      `Synchronous SQLiteAdapter not available… falling back to asynchronous operation. This will happen if you're using remote debugger, and may happen if you forgot to recompile native app after WatermelonDB update`,
-    )
-  } else if (options.experimentalUseJSI) {
+  if (options.jsi) {
     if (initializeJSI()) {
       return 'jsi'
     }

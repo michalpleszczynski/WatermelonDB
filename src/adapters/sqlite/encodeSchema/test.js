@@ -1,7 +1,12 @@
+/* eslint-disable prefer-template */
 import { appSchema, tableSchema } from '../../../Schema'
 import { addColumns, createTable, unsafeExecuteSql } from '../../../Schema/migrations'
 
 import { encodeSchema, encodeMigrationSteps } from './index'
+
+const expectedLocalStorageSchema =
+  'create table "local_storage" ("key" varchar(16) primary key not null, "value" text not null);' +
+  'create index "local_storage_key_index" on "local_storage" ("key");'
 
 describe('encodeSchema', () => {
   it('encodes schema', () => {
@@ -18,7 +23,10 @@ describe('encodeSchema', () => {
         }),
         tableSchema({
           name: 'comments',
-          columns: [{ name: 'is_ended', type: 'boolean' }, { name: 'reactions', type: 'number' }],
+          columns: [
+            { name: 'is_ended', type: 'boolean' },
+            { name: 'reactions', type: 'number' },
+          ],
         }),
       ],
     })
@@ -29,7 +37,8 @@ describe('encodeSchema', () => {
       'create index "tasks_order" on "tasks" ("order");' +
       'create index "tasks__status" on "tasks" ("_status");' +
       'create table "comments" ("id" primary key, "_changed", "_status", "is_ended", "reactions");' +
-      'create index "comments__status" on "comments" ("_status");'
+      'create index "comments__status" on "comments" ("_status");' +
+      expectedLocalStorageSchema
 
     expect(encodeSchema(testSchema)).toBe(expectedSchema)
   })
@@ -40,17 +49,18 @@ describe('encodeSchema', () => {
         tableSchema({
           name: 'tasks',
           columns: [{ name: 'author_id', type: 'string', isIndexed: true }],
-          unsafeSql: sql => sql.replace(/create table "tasks" [^)]+\)/, '$& without rowid'),
+          unsafeSql: (sql) => sql.replace(/create table "tasks" [^)]+\)/, '$& without rowid'),
         }),
       ],
-      unsafeSql: sql => `create blabla;${sql}`,
+      unsafeSql: (sql) => `create blabla;${sql}`,
     })
 
     const expectedSchema =
       'create blabla;' +
       'create table "tasks" ("id" primary key, "_changed", "_status", "author_id") without rowid;' +
       'create index "tasks_author_id" on "tasks" ("author_id");' +
-      'create index "tasks__status" on "tasks" ("_status");'
+      'create index "tasks__status" on "tasks" ("_status");' +
+      expectedLocalStorageSchema
 
     expect(encodeSchema(testSchema)).toBe(expectedSchema)
   })
@@ -96,12 +106,12 @@ describe('encodeSchema', () => {
       addColumns({
         table: 'posts',
         columns: [{ name: 'subtitle', type: 'string', isOptional: true }],
-        unsafeSql: sql => `${sql}bla;`,
+        unsafeSql: (sql) => `${sql}bla;`,
       }),
       createTable({
         name: 'comments',
         columns: [{ name: 'body', type: 'string' }],
-        unsafeSql: sql => sql.replace(/create table [^)]+\)/, '$& without rowid'),
+        unsafeSql: (sql) => sql.replace(/create table [^)]+\)/, '$& without rowid'),
       }),
       unsafeExecuteSql('boop;'),
     ]

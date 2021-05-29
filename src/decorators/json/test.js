@@ -11,10 +11,13 @@ const schema = tableSchema({
 
 const schema2 = tableSchema({
   name: 'mock',
-  columns: [{ name: 'kind', type: 'string' }, { name: 'extras', type: 'string', isOptional: true }],
+  columns: [
+    { name: 'kind', type: 'string' },
+    { name: 'extras', type: 'string', isOptional: true },
+  ],
 })
 
-const mockSanitizer = storedValue =>
+const mockSanitizer = (storedValue) =>
   storedValue && Array.isArray(storedValue.elements)
     ? { elements: storedValue.elements }
     : { elements: [] }
@@ -90,6 +93,6 @@ describe('decorators/json', () => {
           @json
           noName
         },
-    ).toThrow(/column name/)
+    ).toThrow('column name')
   })
 })

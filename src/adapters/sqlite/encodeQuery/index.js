@@ -17,14 +17,15 @@ import { type TableName, type ColumnName } from '../../../Schema'
 
 import encodeValue from '../encodeValue'
 import encodeName from '../encodeName'
+import type { SQL, SQLiteArg } from '../index'
 
-function mapJoin<T>(array: T[], mapper: T => string, joiner: string): string {
+function mapJoin<T>(array: T[], mapper: (T) => string, joiner: string): string {
   // NOTE: DO NOT try to optimize this by concatenating strings together. In non-JIT JSC,
   // concatenating strings is extremely slow (5000ms vs 120ms on 65K sample)
   return array.map(mapper).join(joiner)
 }
 
-const encodeValues: NonNullValues => string = values =>
+const encodeValues: (NonNullValues) => string = (values) =>
   `(${mapJoin((values: any[]), encodeValue, ', ')})`
 
 const getComparisonRight = (table: TableName<any>, comparisonRight: ComparisonRight): string => {
@@ -97,7 +98,10 @@ const encodeWhereCondition = (
   // if right operand is a value, we can use simple comparison
   // if a column, we must check for `not null > null`
   if (comparison.operator === 'weakGt' && comparison.right.column) {
-    return encodeWhere(table, associations)(
+    return encodeWhere(
+      table,
+      associations,
+    )(
       Q.or(
         // $FlowFixMe
         Q.where(left, Q.gt(Q.column(comparison.right.column))),
@@ -169,7 +173,7 @@ const encodeAssociation = (description: QueryDescription) => ({
   // so for now, i'm making an extreeeeemelyyyy bad hack to make sure that there's no breaking change
   // for existing code and code with nested Q.ons probably works (with caveats)
   const usesOldJoinStyle = description.where.some(
-    clause => clause.type === 'on' && clause.table === joinedTable,
+    (clause) => clause.type === 'on' && clause.table === joinedTable,
   )
   const joinKeyword = usesOldJoinStyle ? ' join ' : ' left join '
   const joinBeginning = `${joinKeyword}${encodeName(joinedTable)} on ${encodeName(joinedTable)}.`
@@ -186,7 +190,7 @@ const encodeOrderBy = (table: TableName<any>, sortBys: SortBy[]) => {
     return ''
   }
   const orderBys = sortBys
-    .map(sortBy => {
+    .map((sortBy) => {
       return `${encodeName(table)}.${encodeName(sortBy.sortColumn)} ${sortBy.sortOrder}`
     })
     .join(', ')
@@ -202,8 +206,14 @@ const encodeLimitOffset = (limit: ?number, offset: ?number) => {
   return ` limit ${limit}${optionalOffsetStmt}`
 }
 
-const encodeQuery = (query: SerializedQuery, countMode: boolean = false): string => {
+const encodeQuery = (query: SerializedQuery, countMode: boolean = false): [SQL, SQLiteArg[]] => {
   const { table, description, associations } = query
+
+  // TODO: Test if encoding a `select id.x` query speeds up queryIds() calls
+  if (description.sql) {
+    const { sql, values } = description.sql
+    return [sql, values]
+  }
 
   const hasToManyJoins = associations.some(({ info }) => info.type === 'has_many')
 
@@ -221,7 +231,7 @@ const encodeQuery = (query: SerializedQuery, countMode: boolean = false): string
     encodeOrderBy(table, description.sortBy) +
     encodeLimitOffset(description.take, description.skip)
 
-  return sql
+  return [sql, []]
 }
 
 export default encodeQuery

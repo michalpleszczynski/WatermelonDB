@@ -13,10 +13,13 @@ import encodeName from '../encodeName'
 import encodeValue from '../encodeValue'
 
 const standardColumns = `"id" primary key, "_changed", "_status"`
+const localStorageSchema =
+  'create table "local_storage" ("key" varchar(16) primary key not null, "value" text not null);' +
+  'create index "local_storage_key_index" on "local_storage" ("key");'
 
-const encodeCreateTable: TableSchema => SQL = ({ name, columns }) => {
+const encodeCreateTable: (TableSchema) => SQL = ({ name, columns }) => {
   const columnsSQL = [standardColumns]
-    .concat(Object.keys(columns).map(column => encodeName(column)))
+    .concat(Object.keys(columns).map((column) => encodeName(column)))
     .join(', ')
   return `create table ${encodeName(name)} (${columnsSQL});`
 }
@@ -28,37 +31,37 @@ const encodeIndex: (ColumnSchema, TableName<any>) => SQL = (column, tableName) =
       )});`
     : ''
 
-const encodeTableIndicies: TableSchema => SQL = ({ name: tableName, columns }) =>
+const encodeTableIndicies: (TableSchema) => SQL = ({ name: tableName, columns }) =>
   Object.values(columns)
     // $FlowFixMe
-    .map(column => encodeIndex(column, tableName))
+    .map((column) => encodeIndex(column, tableName))
     .concat([`create index "${tableName}__status" on ${encodeName(tableName)} ("_status");`])
     .join('')
 
 const transform = (sql: string, transformer: ?(string) => string) =>
   transformer ? transformer(sql) : sql
 
-const encodeTable: TableSchema => SQL = table =>
+const encodeTable: (TableSchema) => SQL = (table) =>
   transform(encodeCreateTable(table) + encodeTableIndicies(table), table.unsafeSql)
 
-export const encodeSchema: AppSchema => SQL = ({ tables, unsafeSql }) => {
+export const encodeSchema: (AppSchema) => SQL = ({ tables, unsafeSql }) => {
   const sql = Object.values(tables)
     // $FlowFixMe
     .map(encodeTable)
     .join('')
-  return transform(sql, unsafeSql)
+  return transform(sql + localStorageSchema, unsafeSql)
 }
 
-const encodeCreateTableMigrationStep: CreateTableMigrationStep => SQL = ({ schema }) =>
+const encodeCreateTableMigrationStep: (CreateTableMigrationStep) => SQL = ({ schema }) =>
   encodeTable(schema)
 
-const encodeAddColumnsMigrationStep: AddColumnsMigrationStep => SQL = ({
+const encodeAddColumnsMigrationStep: (AddColumnsMigrationStep) => SQL = ({
   table,
   columns,
   unsafeSql,
 }) =>
   columns
-    .map(column => {
+    .map((column) => {
       const addColumn = `alter table ${encodeName(table)} add ${encodeName(column.name)};`
       const setDefaultValue = `update ${encodeName(table)} set ${encodeName(
         column.name,
@@ -69,9 +72,9 @@ const encodeAddColumnsMigrationStep: AddColumnsMigrationStep => SQL = ({
     })
     .join('')
 
-export const encodeMigrationSteps: (MigrationStep[]) => SQL = steps =>
+export const encodeMigrationSteps: (MigrationStep[]) => SQL = (steps) =>
   steps
-    .map(step => {
+    .map((step) => {
       if (step.type === 'create_table') {
         return encodeCreateTableMigrationStep(step)
       } else if (step.type === 'add_columns') {

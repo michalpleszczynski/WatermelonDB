@@ -9,7 +9,7 @@ Note that Watermelon is only a local database — you need to **bring your own b
 
 ## Using `synchronize()` in your app
 
-To synchronize, you need to pass two functions, `pullChanges` and `pushChanges` that talk to your backend and are compatible with Watermelon Sync Protocol. The frontend code will look something like this:
+To synchronize, you need to pass `pullChanges` and `pushChanges` _(optional)_ that talk to your backend and are compatible with Watermelon Sync Protocol. The frontend code will look something like this:
 
 ```js
 import { synchronize } from '@nozbe/watermelondb/sync'
@@ -41,6 +41,10 @@ async function mySync() {
 }
 
 ```
+
+#### Who calls `synchronize()`?
+
+Upon looking at the example above, one question that may arise is who will call `synchronize()` -- or, in the example above `mySync()`. WatermelonDB does not manage the moment of invocation of the `synchronize()` function in any way. The database assumes every call of `pullChanges` will return _all_ the changes that haven't yet been replicated (up to `last_pulled_at`). The application code is responsible for calling `synchronize()` in the frequence it deems necessary. 
 
 ### Troubleshooting
 
@@ -202,6 +206,8 @@ Example:
   ...
 }
 ```
+
+Again, notice the properties returned have the format defined in the [Schema](../Schema.md) (e.g. `is_favorite`, not `isFavorite`).
 
 Valid changes objects MUST conform to this shape:
 

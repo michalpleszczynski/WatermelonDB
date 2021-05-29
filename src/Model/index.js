@@ -3,6 +3,7 @@
 import { type Observable, BehaviorSubject } from '../utils/rx'
 import { type Unsubscribe } from '../utils/subscriptions'
 import invariant from '../utils/common/invariant'
+import deprecated from '../utils/common/deprecated'
 import ensureSync from '../utils/common/ensureSync'
 import fromPairs from '../utils/fp/fromPairs'
 import noop from '../utils/fp/noop'
@@ -40,19 +41,14 @@ export default class Model {
   // Set this in concrete Models to define relationships between different records
   static associations: Associations = {}
 
+  // Used by withObservables to differentiate between object types
+  static _wmelonTag: string = 'model'
+
   _raw: RawRecord
 
   _isEditing: boolean = false
 
-  // `false` when instantiated but not yet in the database
-  _isCommitted: boolean = true
-
-  // `true` when prepareUpdate was called, but not yet sent to be executed
-  // turns to `false` the moment the update is sent to be executed, even if database
-  // did not respond yet
-  _hasPendingUpdate: boolean = false
-
-  _hasPendingDelete: false | 'mark' | 'destroy' = false
+  _preparedState: null | 'create' | 'update' | 'markAsDeleted' | 'destroyPermanently' = null
 
   __changes: ?BehaviorSubject<$FlowFixMe<this>> = null
 
@@ -79,12 +75,10 @@ export default class Model {
   // someTask.update(task => {
   //   task.name = 'New name'
   // })
-  async update(recordUpdater: this => void = noop): Promise<this> {
-    this.collection.database._ensureInAction(
-      `Model.update() can only be called from inside of an Action. See docs for more details.`,
-    )
+  async update(recordUpdater: (this) => void = noop): Promise<this> {
+    this.db._ensureInWriter(`Model.update()`)
     const record = this.prepareUpdate(recordUpdater)
-    await this.collection.database.batch(this)
+    await this.db.batch(this)
     return record
   }
 
@@ -93,10 +87,8 @@ export default class Model {
   //
   // After preparing an update, you must execute it synchronously using
   // database.batch()
-  prepareUpdate(recordUpdater: this => void = noop): this {
-    invariant(this._isCommitted, `Cannot update uncommitted record`)
-    invariant(!this._hasPendingUpdate, `Cannot update a record with pending updates`)
-
+  prepareUpdate(recordUpdater: (this) => void = noop): this {
+    invariant(!this._preparedState, `Cannot update a record with pending changes`)
     this._isEditing = true
 
     // Touch updatedAt (if available)
@@ -107,15 +99,20 @@ export default class Model {
     // Perform updates
     ensureSync(recordUpdater(this))
     this._isEditing = false
-    this._hasPendingUpdate = true
+    this._preparedState = 'update'
 
     // TODO: `process.nextTick` doesn't work on React Native
     // We could polyfill with setImmediate, but it doesn't have the same effect — test and enseure
     // it would actually work for this purpose
-    if (process.env.NODE_ENV !== 'production' && process && process.nextTick) {
+    if (
+      process.env.NODE_ENV !== 'production' &&
+      typeof process !== 'undefined' &&
+      process &&
+      process.nextTick
+    ) {
       process.nextTick(() => {
         invariant(
-          !this._hasPendingUpdate,
+          this._preparedState !== 'update',
           `record.prepareUpdate was called on ${this.table}#${this.id} but wasn't sent to batch() synchronously -- this is bad!`,
         )
       })
@@ -125,63 +122,45 @@ export default class Model {
   }
 
   prepareMarkAsDeleted(): this {
-    invariant(this._isCommitted, `Cannot mark an uncomitted record as deleted`)
-    invariant(!this._hasPendingUpdate, `Cannot mark an updated record as deleted`)
-
-    this._isEditing = true
+    invariant(!this._preparedState, `Cannot mark a record with pending changes as deleted`)
     this._raw._status = 'deleted'
-    this._hasPendingDelete = 'mark'
-    this._isEditing = false
-
+    this._preparedState = 'markAsDeleted'
     return this
   }
 
   prepareDestroyPermanently(): this {
-    invariant(this._isCommitted, `Cannot mark an uncomitted record as deleted`)
-    invariant(!this._hasPendingUpdate, `Cannot mark an updated record as deleted`)
-
-    this._isEditing = true
+    invariant(!this._preparedState, `Cannot destroy permanently a record with pending changes`)
     this._raw._status = 'deleted'
-    this._hasPendingDelete = 'destroy'
-    this._isEditing = false
-
+    this._preparedState = 'destroyPermanently'
     return this
   }
 
   // Marks this record as deleted (will be permanently deleted after sync)
   // Note: Use this only with Sync
   async markAsDeleted(): Promise<void> {
-    this.collection.database._ensureInAction(
-      `Model.markAsDeleted() can only be called from inside of an Action. See docs for more details.`,
-    )
-    await this.collection.database.batch(this.prepareMarkAsDeleted())
+    this.db._ensureInWriter(`Model.markAsDeleted()`)
+    await this.db.batch(this.prepareMarkAsDeleted())
   }
 
   // Pernamently removes this record from the database
   // Note: Don't use this when using Sync
   async destroyPermanently(): Promise<void> {
-    this.collection.database._ensureInAction(
-      `Model.destroyPermanently() can only be called from inside of an Action. See docs for more details.`,
-    )
-    await this.collection.database.batch(this.prepareDestroyPermanently())
+    this.db._ensureInWriter(`Model.destroyPermanently()`)
+    await this.db.batch(this.prepareDestroyPermanently())
   }
 
   async experimentalMarkAsDeleted(): Promise<void> {
-    this.collection.database._ensureInAction(
-      `Model.experimental_markAsDeleted() can only be called from inside of an Action. See docs for more details.`,
-    )
+    this.db._ensureInWriter(`Model.experimental_markAsDeleted()`)
     const children = await fetchChildren(this)
-    children.forEach(model => model.prepareMarkAsDeleted())
-    await this.collection.database.batch(...children, this.prepareMarkAsDeleted())
+    children.forEach((model) => model.prepareMarkAsDeleted())
+    await this.db.batch(...children, this.prepareMarkAsDeleted())
   }
 
   async experimentalDestroyPermanently(): Promise<void> {
-    this.collection.database._ensureInAction(
-      `Model.experimental_destroyPermanently() can only be called from inside of an Action. See docs for more details.`,
-    )
+    this.db._ensureInWriter(`Model.experimental_destroyPermanently()`)
     const children = await fetchChildren(this)
-    children.forEach(model => model.prepareDestroyPermanently())
-    await this.collection.database.batch(...children, this.prepareDestroyPermanently())
+    children.forEach((model) => model.prepareDestroyPermanently())
+    await this.db.batch(...children, this.prepareDestroyPermanently())
   }
 
   // *** Observing changes ***
@@ -189,7 +168,7 @@ export default class Model {
   // Returns an observable that emits `this` upon subscription and every time this record changes
   // Emits `complete` if this record is destroyed
   observe(): Observable<this> {
-    invariant(this._isCommitted, `Cannot observe uncommitted record`)
+    invariant(this._preparedState !== 'create', `Cannot observe uncommitted record`)
     return this._getChanges()
   }
 
@@ -215,15 +194,28 @@ export default class Model {
   }
 
   // See: Database.batch()
-  // To be used by Model subclass methods only
+  // To be used by Model @writer methods only!
+  // TODO: protect batch,callWriter,... from being used outside a @reader/@writer
   batch(...records: $ReadOnlyArray<Model | null | void | false>): Promise<void> {
-    return this.collection.database.batch(...records)
+    return this.db.batch(...records)
   }
 
-  // TODO: Document me
-  // To be used by Model subclass methods only
+  // To be used by Model @writer methods only!
+  callWriter<T>(action: () => Promise<T>): Promise<T> {
+    return this.db._workQueue.subAction(action)
+  }
+
+  // To be used by Model @writer/@reader methods only!
+  callReader<T>(action: () => Promise<T>): Promise<T> {
+    return this.db._workQueue.subAction(action)
+  }
+
+  // To be used by Model @writer/@reader methods only!
   subAction<T>(action: () => Promise<T>): Promise<T> {
-    return this.collection.database._actionQueue.subAction(action)
+    if (process.env.NODE_ENV !== 'production') {
+      deprecated('Model.subAction()', 'Use .callWriter() / .callReader() instead.')
+    }
+    return this.db._workQueue.subAction(action)
   }
 
   get table(): TableName<this> {
@@ -238,7 +230,7 @@ export default class Model {
 
   static _prepareCreate(
     collection: Collection<$FlowFixMe<this>>,
-    recordBuilder: this => void,
+    recordBuilder: (this) => void,
   ): this {
     const record = new this(
       collection,
@@ -246,7 +238,7 @@ export default class Model {
       sanitizedRaw(createTimestampsFor(this.prototype), collection.schema),
     )
 
-    record._isCommitted = false
+    record._preparedState = 'create'
     record._isEditing = true
     ensureSync(recordBuilder(record))
     record._isEditing = false
@@ -259,7 +251,7 @@ export default class Model {
     dirtyRaw: DirtyRaw,
   ): this {
     const record = new this(collection, sanitizedRaw(dirtyRaw, collection.schema))
-    record._isCommitted = false
+    record._preparedState = 'create'
     return record
   }
 

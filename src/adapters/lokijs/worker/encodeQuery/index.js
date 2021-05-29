@@ -119,7 +119,7 @@ const columnCompRequiresColumnNotNull: { [$FlowFixMe<Operator>]: boolean } = {
   lte: true,
 }
 
-const encodeWhereDescription: WhereDescription => LokiRawQuery = ({ left, comparison }) => {
+const encodeWhereDescription: (WhereDescription) => LokiRawQuery = ({ left, comparison }) => {
   const { operator, right } = comparison
   const col: string = left
   // $FlowFixMe - NOTE: order of ||s is important here, since .value can be falsy, but .column and .values are either truthy or are undefined
@@ -142,7 +142,9 @@ const encodeWhereDescription: WhereDescription => LokiRawQuery = ({ left, compar
   return { [col]: encodedComparison }
 }
 
-const encodeCondition: (QueryAssociation[]) => Clause => LokiRawQuery = associations => clause => {
+const encodeCondition: (QueryAssociation[]) => (Clause) => LokiRawQuery = (associations) => (
+  clause,
+) => {
   switch (clause.type) {
     case 'and':
       return encodeAnd(associations, clause)
@@ -170,10 +172,10 @@ const encodeAndOr = (op: LokiKeyword) => (
 ): LokiRawQuery => {
   const conditions = encodeConditions(associations, clause.conditions)
   // flatten
-  return conditions.length === 1 ?
-    conditions[0] :
-    // $FlowFixMe
-    { [op]: conditions }
+  return conditions.length === 1
+    ? conditions[0]
+    : // $FlowFixMe
+      { [op]: conditions }
 }
 
 const encodeAnd: (QueryAssociation[], And) => LokiRawQuery = encodeAndOr('$and')
@@ -218,13 +220,15 @@ const encodeJoin = (associations: QueryAssociation[], on: On): LokiRawQuery => {
 export default function encodeQuery(query: SerializedQuery): LokiQuery {
   const {
     table,
-    description: { where, joinTables, sortBy, take },
+    description: { where, joinTables, sortBy, take, sql },
     associations,
   } = query
 
-  // TODO: implement support for Q.sortBy(), Q.take(), Q.skip() for Loki adapter
-  invariant(!sortBy.length, '[WatermelonDB][Loki] Q.sortBy() not yet supported')
-  invariant(!take, '[WatermelonDB][Loki] Q.take() not yet supported')
+  invariant(
+    // Note: can't skip without take, no need to check this
+    !sortBy.length && !take && !sql,
+    '[Loki] Q.experimentalSortBy, Q.experimentalTake, Q.experimentalSkip, Q.unsafeSqlQuery are not supported with LokiJSAdapter',
+  )
 
   return {
     table,

@@ -3,9 +3,7 @@
 import type { Database, RecordId, TableName, Model } from '..'
 import { type DirtyRaw } from '../RawRecord'
 
-import {
-  hasUnsyncedChanges as hasUnsyncedChangesImpl,
-} from './impl'
+import { hasUnsyncedChanges as hasUnsyncedChangesImpl } from './impl'
 import type { SchemaVersion } from '../Schema'
 import { type MigrationSyncChanges } from '../Schema/migrations/getSyncChanges'
 
@@ -53,8 +51,8 @@ export type SyncConflictResolver = (
 
 export type SyncArgs = $Exact<{
   database: Database,
-  pullChanges: SyncPullArgs => Promise<SyncPullResult>,
-  pushChanges: SyncPushArgs => Promise<void>,
+  pullChanges: (SyncPullArgs) => Promise<SyncPullResult>,
+  pushChanges?: (SyncPushArgs) => Promise<void>,
   // version at which support for migration syncs was added - the version BEFORE first syncable migration
   migrationsEnabledAtVersion?: SchemaVersion,
   sendCreatedAsUpdated?: boolean,

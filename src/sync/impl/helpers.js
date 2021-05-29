@@ -30,7 +30,7 @@ export function resolveConflict(local: RawRecord, remote: DirtyRaw): DirtyRaw {
   }
 
   // Use local properties where changed
-  local._changed.split(',').forEach(column => {
+  local._changed.split(',').forEach((column) => {
     resolved[column] = local[column]
   })
 
@@ -68,10 +68,12 @@ export function prepareUpdateFromRaw<T: Model>(
 ): T {
   // Note COPY for log - only if needed
   const logConflict = log && !!record._raw._changed
-  const logLocal = logConflict ? {
-    // $FlowFixMe
-    ...record._raw,
-  } : {}
+  const logLocal = logConflict
+    ? {
+        // $FlowFixMe
+        ...record._raw,
+      }
+    : {}
   const logRemote = logConflict ? { ...updatedDirtyRaw } : {}
 
   let newRaw = resolveConflict(record._raw, updatedDirtyRaw)
@@ -105,13 +107,6 @@ export function prepareMarkAsSynced<T: Model>(record: T): T {
   })
 }
 
-export function ensureActionsEnabled(database: Database): void {
-  invariant(
-    database._actionsEnabled,
-    '[Sync] To use Sync, Actions must be enabled. Pass `{ actionsEnabled: true }` to Database constructor — see docs for more details',
-  )
-}
-
 export function ensureSameDatabase(database: Database, initialResetCount: number): void {
   invariant(
     database._resetCount === initialResetCount,
@@ -119,9 +114,15 @@ export function ensureSameDatabase(database: Database, initialResetCount: number
   )
 }
 
-export const isChangeSetEmpty: SyncDatabaseChangeSet => boolean = changeset =>
-  values(changeset).every(({ created, updated, deleted }) => created.length + updated.length + deleted.length === 0)
+export const isChangeSetEmpty: (SyncDatabaseChangeSet) => boolean = (changeset) =>
+  values(changeset).every(
+    ({ created, updated, deleted }) => created.length + updated.length + deleted.length === 0,
+  )
 
-const sum: number[] => number = xs => xs.reduce((a, b) => a + b, 0)
-export const changeSetCount: SyncDatabaseChangeSet => number = changeset =>
-  sum(values(changeset).map(({ created, updated, deleted }) => created.length + updated.length + deleted.length))
+const sum: (number[]) => number = (xs) => xs.reduce((a, b) => a + b, 0)
+export const changeSetCount: (SyncDatabaseChangeSet) => number = (changeset) =>
+  sum(
+    values(changeset).map(
+      ({ created, updated, deleted }) => created.length + updated.length + deleted.length,
+    ),
+  )

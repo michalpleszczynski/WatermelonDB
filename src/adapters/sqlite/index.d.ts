@@ -24,8 +24,7 @@ declare module '@nozbe/watermelondb/adapters/sqlite' {
     dbName?: string
     migrations?: SchemaMigrations
     schema: AppSchema
-    synchronous?: boolean
-    experimentalUseJSI?: boolean
+    jsi?: boolean
   }
 
   export default class SQLiteAdapter implements DatabaseAdapter {
@@ -46,8 +45,6 @@ declare module '@nozbe/watermelondb/adapters/sqlite' {
     getLocal(key: string): Promise<string | null>
 
     query<T extends Model>(query: Query<T>): Promise<CachedQueryResult>
-
-    unsafeSqlQuery<T extends Model>(sql: string, tableName: TableName<T>): Promise<CachedQueryResult>
 
     removeLocal(key: string): Promise<void>
 
